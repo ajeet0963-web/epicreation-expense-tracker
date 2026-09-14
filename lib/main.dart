@@ -11,11 +11,47 @@ class App extends StatelessWidget {
   @override Widget build(BuildContext context)=>MaterialApp(
     debugShowCheckedModeBanner:false,
     theme:ThemeData(colorScheme:ColorScheme.fromSeed(seedColor:const Color(0xff0b5cab)),useMaterial3:true),
-    home:const Home());
+    home:const LoginPage());
+}
+
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+  @override State<LoginPage> createState()=>_LoginPageState();
+}
+class _LoginPageState extends State<LoginPage> {
+  final pin=TextEditingController();
+  String? error;
+  void adminLogin(){
+    if(pin.text=='1234'){
+      Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>const Home(isAdmin:true)));
+    }else{
+      setState(()=>error='Incorrect PIN');
+    }
+  }
+  @override Widget build(BuildContext context)=>Scaffold(
+    body:SafeArea(child:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(24),child:ConstrainedBox(
+      constraints:const BoxConstraints(maxWidth:420),
+      child:Column(children:[
+        const CircleAvatar(radius:38,backgroundColor:Color(0xff0b5cab),child:Icon(Icons.account_balance_wallet,color:Colors.white,size:38)),
+        const SizedBox(height:18),
+        const Text('EpiCreation Expenses',style:TextStyle(fontSize:26,fontWeight:FontWeight.bold)),
+        const Text('Company Expense Tracker'),
+        const SizedBox(height:30),
+        TextField(controller:pin,obscureText:true,keyboardType:TextInputType.number,maxLength:4,
+          decoration:InputDecoration(labelText:'Admin PIN',errorText:error,border:const OutlineInputBorder(),prefixIcon:const Icon(Icons.lock))),
+        SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:adminLogin,icon:const Icon(Icons.admin_panel_settings),label:const Text('Admin Login'))),
+        const SizedBox(height:12),
+        SizedBox(width:double.infinity,child:OutlinedButton.icon(
+          onPressed:()=>Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>const Home(isAdmin:false))),
+          icon:const Icon(Icons.person),label:const Text('Continue as Employee'))),
+        const SizedBox(height:20),
+        const Text('Testing Admin PIN: 1234',style:TextStyle(color:Colors.grey))
+      ]))))));
 }
 
 class Home extends StatefulWidget {
-  const Home({super.key});
+  const Home({super.key,required this.isAdmin});
+  final bool isAdmin;
   @override State<Home> createState()=>_HomeState();
 }
 
@@ -25,6 +61,8 @@ class _HomeState extends State<Home> {
     Expense('Local Transport',850,'Travel'),
     Expense('Printing Material',2450,'Production')
   ];
+
+  void logout()=>Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>const LoginPage()));
 
   void addExpense(){
     final title=TextEditingController(),amount=TextEditingController();
@@ -39,13 +77,12 @@ class _HomeState extends State<Home> {
           const SizedBox(height:12),
           TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Amount (₹)',border:OutlineInputBorder())),
           const SizedBox(height:12),
-          DropdownButtonFormField<String>(
-            initialValue:category,
+          DropdownButtonFormField<String>(initialValue:category,
             decoration:const InputDecoration(labelText:'Category',border:OutlineInputBorder()),
             items:['Travel','Food','Production','Accommodation','Office','Other'].map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),
             onChanged:(v)=>modal(()=>category=v!)),
           const SizedBox(height:12),
-          OutlinedButton.icon(onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Bill upload will connect to Azure in the production version.'))),icon:const Icon(Icons.receipt_long),label:const Text('Attach Bill')),
+          OutlinedButton.icon(onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Bill upload will connect to Azure in production.'))),icon:const Icon(Icons.receipt_long),label:const Text('Attach Bill')),
           const SizedBox(height:12),
           SizedBox(width:double.infinity,child:FilledButton(onPressed:(){
             final value=double.tryParse(amount.text);
@@ -56,18 +93,23 @@ class _HomeState extends State<Home> {
         ]))));
   }
 
-  @override Widget build(BuildContext context)=>Scaffold(
-    appBar:AppBar(title:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      Text('EpiCreation Expenses',style:TextStyle(fontWeight:FontWeight.bold)),
-      Text('Employee → Accounts → Director',style:TextStyle(fontSize:12))
-    ])),
-    body:tab==0?expenses():tab==1?approvals():const Center(child:Text('Profile & Settings\nMVP Version 1.0',textAlign:TextAlign.center)),
-    floatingActionButton:tab==0?FloatingActionButton.extended(onPressed:addExpense,icon:const Icon(Icons.add),label:const Text('Add Expense')):null,
-    bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const[
-      NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'Expenses'),
-      NavigationDestination(icon:Icon(Icons.approval_outlined),label:'Approvals'),
-      NavigationDestination(icon:Icon(Icons.person_outline),label:'Profile')
-    ]));
+  @override Widget build(BuildContext context){
+    final pages=<Widget>[expenses()];
+    if(widget.isAdmin)pages.add(approvals());
+    pages.add(profile());
+    return Scaffold(
+      appBar:AppBar(title:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        const Text('EpiCreation Expenses',style:TextStyle(fontWeight:FontWeight.bold)),
+        Text(widget.isAdmin?'Administrator':'Employee',style:const TextStyle(fontSize:12))
+      ]),actions:[IconButton(onPressed:logout,icon:const Icon(Icons.logout),tooltip:'Logout')]),
+      body:pages[tab],
+      floatingActionButton:tab==0?FloatingActionButton.extended(onPressed:addExpense,icon:const Icon(Icons.add),label:const Text('Add Expense')):null,
+      bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:[
+        const NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'Expenses'),
+        if(widget.isAdmin)const NavigationDestination(icon:Icon(Icons.approval_outlined),label:'Approvals'),
+        const NavigationDestination(icon:Icon(Icons.person_outline),label:'Profile')
+      ]));
+  }
 
   Widget expenses(){
     final total=items.fold<double>(0,(s,e)=>s+e.amount);
@@ -89,14 +131,21 @@ class _HomeState extends State<Home> {
   }
 
   Widget approvals()=>ListView(padding:const EdgeInsets.all(16),children:[
-    const Text('Accounts Review',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
-    const Text('Review expenses before Director approval.'),
+    const Text('Admin Approvals',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+    const Text('Accounts review followed by Director approval.'),
     const SizedBox(height:12),
     ...items.map((e)=>Card(child:ListTile(
-      title:Text(e.title),
-      subtitle:Text(e.category+' • '+e.status),
-      trailing:PopupMenuButton<String>(
-        onSelected:(v)=>setState(()=>e.status=v),
+      title:Text(e.title),subtitle:Text(e.category+' • '+e.status),
+      trailing:PopupMenuButton<String>(onSelected:(v)=>setState(()=>e.status=v),
         itemBuilder:(_)=>['Accounts Approved','Director Approved','Rejected'].map((v)=>PopupMenuItem(value:v,child:Text(v))).toList()))))
   ]);
+
+  Widget profile()=>Center(child:Column(mainAxisSize:MainAxisSize.min,children:[
+    Icon(widget.isAdmin?Icons.admin_panel_settings:Icons.person,size:64,color:const Color(0xff0b5cab)),
+    const SizedBox(height:12),
+    Text(widget.isAdmin?'Administrator Access':'Employee Access',style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+    const Text('MVP Version 1.1'),
+    const SizedBox(height:20),
+    OutlinedButton.icon(onPressed:logout,icon:const Icon(Icons.logout),label:const Text('Logout'))
+  ]));
 }

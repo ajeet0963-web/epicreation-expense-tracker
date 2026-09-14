@@ -1,0 +1,102 @@
+import 'package:flutter/material.dart';
+void main()=>runApp(const App());
+
+class Expense {
+  Expense(this.title,this.amount,this.category);
+  final String title,category; final double amount; String status='Submitted';
+}
+
+class App extends StatelessWidget {
+  const App({super.key});
+  @override Widget build(BuildContext context)=>MaterialApp(
+    debugShowCheckedModeBanner:false,
+    theme:ThemeData(colorScheme:ColorScheme.fromSeed(seedColor:const Color(0xff0b5cab)),useMaterial3:true),
+    home:const Home());
+}
+
+class Home extends StatefulWidget {
+  const Home({super.key});
+  @override State<Home> createState()=>_HomeState();
+}
+
+class _HomeState extends State<Home> {
+  int tab=0;
+  final items=<Expense>[
+    Expense('Local Transport',850,'Travel'),
+    Expense('Printing Material',2450,'Production')
+  ];
+
+  void addExpense(){
+    final title=TextEditingController(),amount=TextEditingController();
+    String category='Travel';
+    showModalBottomSheet(context:context,isScrollControlled:true,builder:(ctx)=>StatefulBuilder(
+      builder:(ctx,modal)=>Padding(
+        padding:EdgeInsets.fromLTRB(20,20,20,MediaQuery.of(ctx).viewInsets.bottom+20),
+        child:Column(mainAxisSize:MainAxisSize.min,children:[
+          const Text('Submit Expense',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
+          const SizedBox(height:16),
+          TextField(controller:title,decoration:const InputDecoration(labelText:'Expense title',border:OutlineInputBorder())),
+          const SizedBox(height:12),
+          TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Amount (₹)',border:OutlineInputBorder())),
+          const SizedBox(height:12),
+          DropdownButtonFormField<String>(
+            initialValue:category,
+            decoration:const InputDecoration(labelText:'Category',border:OutlineInputBorder()),
+            items:['Travel','Food','Production','Accommodation','Office','Other'].map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),
+            onChanged:(v)=>modal(()=>category=v!)),
+          const SizedBox(height:12),
+          OutlinedButton.icon(onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Bill upload will connect to Azure in the production version.'))),icon:const Icon(Icons.receipt_long),label:const Text('Attach Bill')),
+          const SizedBox(height:12),
+          SizedBox(width:double.infinity,child:FilledButton(onPressed:(){
+            final value=double.tryParse(amount.text);
+            if(title.text.trim().isEmpty||value==null||value<=0)return;
+            setState(()=>items.insert(0,Expense(title.text.trim(),value,category)));
+            Navigator.pop(ctx);
+          },child:const Text('Submit to Accounts')))
+        ]))));
+  }
+
+  @override Widget build(BuildContext context)=>Scaffold(
+    appBar:AppBar(title:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      Text('EpiCreation Expenses',style:TextStyle(fontWeight:FontWeight.bold)),
+      Text('Employee → Accounts → Director',style:TextStyle(fontSize:12))
+    ])),
+    body:tab==0?expenses():tab==1?approvals():const Center(child:Text('Profile & Settings\nMVP Version 1.0',textAlign:TextAlign.center)),
+    floatingActionButton:tab==0?FloatingActionButton.extended(onPressed:addExpense,icon:const Icon(Icons.add),label:const Text('Add Expense')):null,
+    bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const[
+      NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'Expenses'),
+      NavigationDestination(icon:Icon(Icons.approval_outlined),label:'Approvals'),
+      NavigationDestination(icon:Icon(Icons.person_outline),label:'Profile')
+    ]));
+
+  Widget expenses(){
+    final total=items.fold<double>(0,(s,e)=>s+e.amount);
+    return ListView(padding:const EdgeInsets.all(16),children:[
+      Card(color:const Color(0xff0b5cab),child:Padding(padding:const EdgeInsets.all(20),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        const Text('Total submitted',style:TextStyle(color:Colors.white70)),
+        Text('₹'+total.toStringAsFixed(2),style:const TextStyle(color:Colors.white,fontSize:30,fontWeight:FontWeight.bold)),
+        Text(items.length.toString()+' expense records',style:const TextStyle(color:Colors.white70))
+      ]))),
+      const SizedBox(height:12),
+      const Text('Recent Expenses',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+      ...items.map((e)=>Card(child:ListTile(
+        leading:const CircleAvatar(child:Icon(Icons.receipt)),
+        title:Text(e.title,style:const TextStyle(fontWeight:FontWeight.w600)),
+        subtitle:Text(e.category+' • '+e.status),
+        trailing:Text('₹'+e.amount.toStringAsFixed(0),style:const TextStyle(fontWeight:FontWeight.bold))))),
+      const SizedBox(height:80)
+    ]);
+  }
+
+  Widget approvals()=>ListView(padding:const EdgeInsets.all(16),children:[
+    const Text('Accounts Review',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+    const Text('Review expenses before Director approval.'),
+    const SizedBox(height:12),
+    ...items.map((e)=>Card(child:ListTile(
+      title:Text(e.title),
+      subtitle:Text(e.category+' • '+e.status),
+      trailing:PopupMenuButton<String>(
+        onSelected:(v)=>setState(()=>e.status=v),
+        itemBuilder:(_)=>['Accounts Approved','Director Approved','Rejected'].map((v)=>PopupMenuItem(value:v,child:Text(v))).toList()))))
+  ]);
+}

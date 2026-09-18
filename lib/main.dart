@@ -1,151 +1,64 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+const api='https://expenses.epicreationevents.com';
 void main()=>runApp(const App());
 
-class Expense {
-  Expense(this.title,this.amount,this.category);
-  final String title,category; final double amount; String status='Submitted';
+class Api {
+  static String token='';
+  static Map<String,String> headers()=>{'Authorization':'Bearer $token','Content-Type':'application/json'};
+  static Future<dynamic> call(String route,{String method='GET',Map<String,dynamic>? data})async{
+    final u=Uri.parse('$api/$route');
+    late http.Response r;
+    if(method=='POST') r=await http.post(u,headers:headers(),body:jsonEncode(data??{})); else r=await http.get(u,headers:headers());
+    final v=jsonDecode(r.body);
+    if(r.statusCode<200||r.statusCode>=300) throw Exception(v['error']??'Request failed');
+    return v;
+  }
 }
 
-class App extends StatelessWidget {
+class App extends StatelessWidget{
   const App({super.key});
-  @override Widget build(BuildContext context)=>MaterialApp(
-    debugShowCheckedModeBanner:false,
-    theme:ThemeData(colorScheme:ColorScheme.fromSeed(seedColor:const Color(0xff0b5cab)),useMaterial3:true),
-    home:const LoginPage());
+  @override Widget build(BuildContext c)=>MaterialApp(debugShowCheckedModeBanner:false,title:'EpiCreation Expenses',theme:ThemeData(colorScheme:ColorScheme.fromSeed(seedColor:const Color(0xff0b5cab)),useMaterial3:true),home:const Gate());
+}
+class Gate extends StatefulWidget{const Gate({super.key});@override State<Gate> createState()=>_GateState();}
+class _GateState extends State<Gate>{
+  bool loading=true; Map<String,dynamic>? user;
+  @override void initState(){super.initState();restore();}
+  Future<void> restore()async{final p=await SharedPreferences.getInstance();Api.token=p.getString('token')??'';if(Api.token.isNotEmpty){try{user=(await Api.call('me'))['user'];}catch(_){Api.token='';}}if(mounted)setState(()=>loading=false);}
+  @override Widget build(BuildContext c)=>loading?const Scaffold(body:Center(child:CircularProgressIndicator())):user==null?LoginPage(onLogin:(u)=>setState(()=>user=u)):Home(user:user!,onLogout:()async{(await SharedPreferences.getInstance()).remove('token');Api.token='';setState(()=>user=null);});
 }
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
-  @override State<LoginPage> createState()=>_LoginPageState();
-}
-class _LoginPageState extends State<LoginPage> {
-  final pin=TextEditingController();
-  String? error;
-  void adminLogin(){
-    if(pin.text=='1234'){
-      Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>const Home(isAdmin:true)));
-    }else{
-      setState(()=>error='Incorrect PIN');
-    }
-  }
-  @override Widget build(BuildContext context)=>Scaffold(
-    body:SafeArea(child:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(24),child:ConstrainedBox(
-      constraints:const BoxConstraints(maxWidth:420),
-      child:Column(children:[
-        const CircleAvatar(radius:38,backgroundColor:Color(0xff0b5cab),child:Icon(Icons.account_balance_wallet,color:Colors.white,size:38)),
-        const SizedBox(height:18),
-        const Text('EpiCreation Expenses',style:TextStyle(fontSize:26,fontWeight:FontWeight.bold)),
-        const Text('Company Expense Tracker'),
-        const SizedBox(height:30),
-        TextField(controller:pin,obscureText:true,keyboardType:TextInputType.number,maxLength:4,
-          decoration:InputDecoration(labelText:'Admin PIN',errorText:error,border:const OutlineInputBorder(),prefixIcon:const Icon(Icons.lock))),
-        SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:adminLogin,icon:const Icon(Icons.admin_panel_settings),label:const Text('Admin Login'))),
-        const SizedBox(height:12),
-        SizedBox(width:double.infinity,child:OutlinedButton.icon(
-          onPressed:()=>Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>const Home(isAdmin:false))),
-          icon:const Icon(Icons.person),label:const Text('Continue as Employee'))),
-        const SizedBox(height:20),
-        const Text('Testing Admin PIN: 1234',style:TextStyle(color:Colors.grey))
-      ]))))));
+class LoginPage extends StatefulWidget{const LoginPage({super.key,required this.onLogin});final void Function(Map<String,dynamic>) onLogin;@override State<LoginPage> createState()=>_LoginPageState();}
+class _LoginPageState extends State<LoginPage>{
+  final email=TextEditingController(),pass=TextEditingController();bool busy=false,register=false;String? error;
+  final name=TextEditingController(),code=TextEditingController(),phone=TextEditingController();
+  Future<void> submit()async{setState((){busy=true;error=null;});try{if(register){await Api.call('register',method:'POST',data:{'employee_code':code.text,'full_name':name.text,'email':email.text,'phone':phone.text,'password':pass.text});if(mounted){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Registration submitted. Wait for administrator approval.')));setState(()=>register=false);}}else{final v=await Api.call('login',method:'POST',data:{'email':email.text,'password':pass.text,'device_name':'Android'});Api.token=v['token'];(await SharedPreferences.getInstance()).setString('token',Api.token);widget.onLogin(Map<String,dynamic>.from(v['user']));}}catch(e){error=e.toString().replaceFirst('Exception: ','');}if(mounted)setState(()=>busy=false);}
+  @override Widget build(BuildContext c)=>Scaffold(body:SafeArea(child:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(24),child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:430),child:Column(children:[const CircleAvatar(radius:38,backgroundColor:Color(0xff0b5cab),child:Icon(Icons.account_balance_wallet,color:Colors.white,size:38)),const SizedBox(height:14),const Text('EpiCreation Expenses',style:TextStyle(fontSize:26,fontWeight:FontWeight.bold)),Text(register?'Employee registration':'Secure company login'),const SizedBox(height:24),if(register)...[TextField(controller:name,decoration:const InputDecoration(labelText:'Full name',border:OutlineInputBorder())),const SizedBox(height:12),TextField(controller:code,decoration:const InputDecoration(labelText:'Employee code',border:OutlineInputBorder())),const SizedBox(height:12),TextField(controller:phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone',border:OutlineInputBorder())),const SizedBox(height:12)],TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email',border:OutlineInputBorder())),const SizedBox(height:12),TextField(controller:pass,obscureText:true,decoration:const InputDecoration(labelText:'Password',border:OutlineInputBorder())),if(error!=null)Padding(padding:const EdgeInsets.all(10),child:Text(error!,style:const TextStyle(color:Colors.red))),SizedBox(width:double.infinity,child:FilledButton(onPressed:busy?null:submit,child:Text(busy?'Please wait...':register?'Register':'Login'))),TextButton(onPressed:busy?null:()=>setState(()=>register=!register),child:Text(register?'Already registered? Login':'New employee? Register'))]))))));
 }
 
-class Home extends StatefulWidget {
-  const Home({super.key,required this.isAdmin});
-  final bool isAdmin;
-  @override State<Home> createState()=>_HomeState();
+class Home extends StatefulWidget{const Home({super.key,required this.user,required this.onLogout});final Map<String,dynamic> user;final VoidCallback onLogout;@override State<Home> createState()=>_HomeState();}
+class _HomeState extends State<Home>{int tab=0;late final bool admin=widget.user['role']!='employee';
+  @override Widget build(BuildContext c){final pages=[ExpensePage(user:widget.user),if(admin)AdminPage(user:widget.user),AdvancePage(user:widget.user),ProfilePage(user:widget.user,onLogout:widget.onLogout)];return Scaffold(appBar:AppBar(title:const Text('EpiCreation Expenses',style:TextStyle(fontWeight:FontWeight.bold)),actions:[IconButton(onPressed:widget.onLogout,icon:const Icon(Icons.logout))]),body:pages[tab],bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:[const NavigationDestination(icon:Icon(Icons.receipt_long),label:'Expenses'),if(admin)const NavigationDestination(icon:Icon(Icons.approval),label:'Admin'),const NavigationDestination(icon:Icon(Icons.payments),label:'Advances'),const NavigationDestination(icon:Icon(Icons.person),label:'Profile')]));}
 }
 
-class _HomeState extends State<Home> {
-  int tab=0;
-  final items=<Expense>[
-    Expense('Local Transport',850,'Travel'),
-    Expense('Printing Material',2450,'Production')
-  ];
-
-  void logout()=>Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>const LoginPage()));
-
-  void addExpense(){
-    final title=TextEditingController(),amount=TextEditingController();
-    String category='Travel';
-    showModalBottomSheet(context:context,isScrollControlled:true,builder:(ctx)=>StatefulBuilder(
-      builder:(ctx,modal)=>Padding(
-        padding:EdgeInsets.fromLTRB(20,20,20,MediaQuery.of(ctx).viewInsets.bottom+20),
-        child:Column(mainAxisSize:MainAxisSize.min,children:[
-          const Text('Submit Expense',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
-          const SizedBox(height:16),
-          TextField(controller:title,decoration:const InputDecoration(labelText:'Expense title',border:OutlineInputBorder())),
-          const SizedBox(height:12),
-          TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Amount (₹)',border:OutlineInputBorder())),
-          const SizedBox(height:12),
-          DropdownButtonFormField<String>(initialValue:category,
-            decoration:const InputDecoration(labelText:'Category',border:OutlineInputBorder()),
-            items:['Travel','Food','Production','Accommodation','Office','Other'].map((v)=>DropdownMenuItem(value:v,child:Text(v))).toList(),
-            onChanged:(v)=>modal(()=>category=v!)),
-          const SizedBox(height:12),
-          OutlinedButton.icon(onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Bill upload will connect to Azure in production.'))),icon:const Icon(Icons.receipt_long),label:const Text('Attach Bill')),
-          const SizedBox(height:12),
-          SizedBox(width:double.infinity,child:FilledButton(onPressed:(){
-            final value=double.tryParse(amount.text);
-            if(title.text.trim().isEmpty||value==null||value<=0)return;
-            setState(()=>items.insert(0,Expense(title.text.trim(),value,category)));
-            Navigator.pop(ctx);
-          },child:const Text('Submit to Accounts')))
-        ]))));
-  }
-
-  @override Widget build(BuildContext context){
-    final pages=<Widget>[expenses()];
-    if(widget.isAdmin)pages.add(approvals());
-    pages.add(profile());
-    return Scaffold(
-      appBar:AppBar(title:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        const Text('EpiCreation Expenses',style:TextStyle(fontWeight:FontWeight.bold)),
-        Text(widget.isAdmin?'Administrator':'Employee',style:const TextStyle(fontSize:12))
-      ]),actions:[IconButton(onPressed:logout,icon:const Icon(Icons.logout),tooltip:'Logout')]),
-      body:pages[tab],
-      floatingActionButton:tab==0?FloatingActionButton.extended(onPressed:addExpense,icon:const Icon(Icons.add),label:const Text('Add Expense')):null,
-      bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:[
-        const NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'Expenses'),
-        if(widget.isAdmin)const NavigationDestination(icon:Icon(Icons.approval_outlined),label:'Approvals'),
-        const NavigationDestination(icon:Icon(Icons.person_outline),label:'Profile')
-      ]));
-  }
-
-  Widget expenses(){
-    final total=items.fold<double>(0,(s,e)=>s+e.amount);
-    return ListView(padding:const EdgeInsets.all(16),children:[
-      Card(color:const Color(0xff0b5cab),child:Padding(padding:const EdgeInsets.all(20),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        const Text('Total submitted',style:TextStyle(color:Colors.white70)),
-        Text('₹'+total.toStringAsFixed(2),style:const TextStyle(color:Colors.white,fontSize:30,fontWeight:FontWeight.bold)),
-        Text(items.length.toString()+' expense records',style:const TextStyle(color:Colors.white70))
-      ]))),
-      const SizedBox(height:12),
-      const Text('Recent Expenses',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
-      ...items.map((e)=>Card(child:ListTile(
-        leading:const CircleAvatar(child:Icon(Icons.receipt)),
-        title:Text(e.title,style:const TextStyle(fontWeight:FontWeight.w600)),
-        subtitle:Text(e.category+' • '+e.status),
-        trailing:Text('₹'+e.amount.toStringAsFixed(0),style:const TextStyle(fontWeight:FontWeight.bold))))),
-      const SizedBox(height:80)
-    ]);
-  }
-
-  Widget approvals()=>ListView(padding:const EdgeInsets.all(16),children:[
-    const Text('Admin Approvals',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
-    const Text('Accounts review followed by Director approval.'),
-    const SizedBox(height:12),
-    ...items.map((e)=>Card(child:ListTile(
-      title:Text(e.title),subtitle:Text(e.category+' • '+e.status),
-      trailing:PopupMenuButton<String>(onSelected:(v)=>setState(()=>e.status=v),
-        itemBuilder:(_)=>['Accounts Approved','Director Approved','Rejected'].map((v)=>PopupMenuItem(value:v,child:Text(v))).toList()))))
-  ]);
-
-  Widget profile()=>Center(child:Column(mainAxisSize:MainAxisSize.min,children:[
-    Icon(widget.isAdmin?Icons.admin_panel_settings:Icons.person,size:64,color:const Color(0xff0b5cab)),
-    const SizedBox(height:12),
-    Text(widget.isAdmin?'Administrator Access':'Employee Access',style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
-    const Text('MVP Version 1.1'),
-    const SizedBox(height:20),
-    OutlinedButton.icon(onPressed:logout,icon:const Icon(Icons.logout),label:const Text('Logout'))
-  ]));
+class ExpensePage extends StatefulWidget{const ExpensePage({super.key,required this.user});final Map<String,dynamic> user;@override State<ExpensePage> createState()=>_ExpensePageState();}
+class _ExpensePageState extends State<ExpensePage>{List items=[];bool busy=true;@override void initState(){super.initState();load();}Future<void> load()async{try{items=(await Api.call('expenses'))['expenses'];}catch(e){if(mounted)msg(e);}if(mounted)setState(()=>busy=false);}void msg(Object e)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString().replaceFirst('Exception: ',''))));
+  Future<void> add()async{final title=TextEditingController(),amount=TextEditingController(),desc=TextEditingController();String cat='travel',source='self';DateTime date=DateTime.now();XFile? bill;await showDialog(context:context,builder:(d)=>StatefulBuilder(builder:(d,setD)=>AlertDialog(scrollable:true,title:const Text('Submit expense'),content:Column(children:[TextField(controller:title,decoration:const InputDecoration(labelText:'Title')),TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Amount')),DropdownButtonFormField(value:cat,items:['travel','food','accommodation','production','office','courier','other'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>setD(()=>cat=v!)),DropdownButtonFormField(value:source,items:['self','company_advance','company_card'].map((x)=>DropdownMenuItem(value:x,child:Text(x.replaceAll('_',' ')))).toList(),onChanged:(v)=>setD(()=>source=v!)),TextField(controller:desc,decoration:const InputDecoration(labelText:'Description')),const SizedBox(height:8),OutlinedButton.icon(onPressed:()async{bill=await ImagePicker().pickImage(source:ImageSource.gallery,imageQuality:80);setD((){});},icon:const Icon(Icons.attach_file),label:Text(bill==null?'Attach bill':'Bill attached'))]),actions:[TextButton(onPressed:()=>Navigator.pop(d),child:const Text('Cancel')),FilledButton(onPressed:()async{try{final req=http.MultipartRequest('POST',Uri.parse('$api/expenses'));req.headers['Authorization']='Bearer ${Api.token}';req.fields.addAll({'expense_date':date.toIso8601String().substring(0,10),'title':title.text,'category':cat,'amount':amount.text,'payment_source':source,'description':desc.text});if(bill!=null)req.files.add(await http.MultipartFile.fromPath('bill',bill!.path));final r=await http.Response.fromStream(await req.send());final v=jsonDecode(r.body);if(r.statusCode>=300)throw Exception(v['error']);if(d.mounted)Navigator.pop(d);await load();}catch(e){msg(e);}},child:const Text('Submit'))])));}
+  @override Widget build(BuildContext c)=>Scaffold(body:RefreshIndicator(onRefresh:load,child:busy?const Center(child:CircularProgressIndicator()):ListView(padding:const EdgeInsets.all(16),children:[Text('Welcome, ${widget.user['full_name']}',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),const SizedBox(height:10),if(items.isEmpty)const Card(child:Padding(padding:EdgeInsets.all(24),child:Text('No expenses yet.'))),...items.map((e)=>Card(child:ListTile(title:Text(e['title']),subtitle:Text('${e['expense_date']} • ${e['status'].toString().replaceAll('_',' ')}'),trailing:Text('₹${e['amount']}',style:const TextStyle(fontWeight:FontWeight.bold))))),const SizedBox(height:80)])),floatingActionButton:FloatingActionButton.extended(onPressed:add,icon:const Icon(Icons.add),label:const Text('Expense')));
 }
+
+class AdminPage extends StatefulWidget{const AdminPage({super.key,required this.user});final Map<String,dynamic> user;@override State<AdminPage> createState()=>_AdminPageState();}
+class _AdminPageState extends State<AdminPage>{List users=[];List expenses=[];bool busy=true;@override void initState(){super.initState();load();}Future<void> load()async{try{users=(await Api.call('users'))['users'];expenses=(await Api.call('expenses'))['expenses'];}catch(e){msg(e);}if(mounted)setState(()=>busy=false);}void msg(Object e)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.toString().replaceFirst('Exception: ',''))));Future<void> approve(dynamic id,String status)async{try{await Api.call('approve-user',method:'POST',data:{'user_id':id,'status':status});await load();}catch(e){msg(e);}}Future<void> status(dynamic id,String status)async{try{await Api.call('expense-status',method:'POST',data:{'expense_id':id,'status':status});await load();}catch(e){msg(e);}}Future<void> export()async{try{final r=await http.get(Uri.parse('$api/export'),headers:{'Authorization':'Bearer ${Api.token}'});if(r.statusCode!=200)throw Exception('Export failed');final f=File('${(await getTemporaryDirectory()).path}/employee-expenses-${DateTime.now().toIso8601String().substring(0,10)}.csv');await f.writeAsBytes(r.bodyBytes);await Share.shareXFiles([XFile(f.path)],text:'Employee expense export');}catch(e){msg(e);}}
+  @override Widget build(BuildContext c)=>busy?const Center(child:CircularProgressIndicator()):RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(14),children:[Row(children:[const Expanded(child:Text('Employee approvals',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold))),IconButton(onPressed:export,tooltip:'Export Excel-compatible CSV',icon:const Icon(Icons.download))]),...users.where((u)=>u['role']=='employee').map((u)=>Card(child:ListTile(title:Text(u['full_name']),subtitle:Text('${u['employee_code']} • ${u['approval_status']}'),trailing:u['approval_status']=='pending'?PopupMenuButton<String>(onSelected:(v)=>approve(u['id'],v),itemBuilder:(_)=>['approved','rejected'].map((v)=>PopupMenuItem(value:v,child:Text(v))).toList()):null))),const SizedBox(height:16),const Text('Expense review',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),...expenses.map((e)=>Card(child:ListTile(title:Text('${e['full_name']} — ${e['title']}'),subtitle:Text('₹${e['amount']} • ${e['status']}'),trailing:PopupMenuButton<String>(onSelected:(v)=>status(e['id'],v),itemBuilder:(_)=>['accounts_approved','director_approved','rejected','paid'].map((v)=>PopupMenuItem(value:v,child:Text(v.replaceAll('_',' ')))).toList()))))]));
+}
+
+class AdvancePage extends StatefulWidget{const AdvancePage({super.key,required this.user});final Map<String,dynamic> user;@override State<AdvancePage> createState()=>_AdvancePageState();}
+class _AdvancePageState extends State<AdvancePage>{List rows=[];@override void initState(){super.initState();load();}Future<void> load()async{try{rows=(await Api.call('summary'))['summary'];}catch(_){}if(mounted)setState((){});}@override Widget build(BuildContext c)=>RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(16),children:[const Text('Company advances',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),...rows.map((r)=>Card(child:ListTile(title:Text(r['full_name']??'My balance'),subtitle:Text('Advance ₹${r['total_advance']} • Used ₹${r['expenses_from_advance']}'),trailing:Text('₹${r['advance_balance']}',style:const TextStyle(fontWeight:FontWeight.bold))))) ]));}
+class ProfilePage extends StatelessWidget{const ProfilePage({super.key,required this.user,required this.onLogout});final Map<String,dynamic> user;final VoidCallback onLogout;@override Widget build(BuildContext c)=>Center(child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.verified_user,size:64,color:Color(0xff0b5cab)),Text(user['full_name'],style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),Text('${user['role']} • ${user['email']}'),const SizedBox(height:20),OutlinedButton.icon(onPressed:onLogout,icon:const Icon(Icons.logout),label:const Text('Logout'))]));}
